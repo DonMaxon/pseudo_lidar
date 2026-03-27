@@ -1,0 +1,18 @@
+# Core
+numpy>=1.24
+torch>=2.0
+Pillow>=9.0
+
+# Depth Anything V2 Metric (via HuggingFace Transformers)
+transformers>=4.40
+accelerate>=0.20
+
+# nuScenes devkit
+nuscenes-devkit>=1.1.10
+
+# Visualization
+matplotlib>=3.7
+opencv-python>=4.8
+
+# Optional: faster voxel downsampling
+# open3d>=0.17
