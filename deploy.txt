@@ -14,6 +14,15 @@ cd /workspace/pseudo_lidar_bev/depth2lidar
 pip install -r requirements.txt
 pip install nuscenes-devkit scipy scikit-learn opencv-python pyquaternion
 
+# Установить Depth Anything 3 (локально из подпапки репозитория)
+pip install -e depth-anything-3/
+
+# Модель DA3METRIC-LARGE скачается автоматически с HuggingFace при первом запуске:
+#   depth-anything/DA3METRIC-LARGE  (~4 GB)
+# Если сервер без интернета — скачать заранее через huggingface-cli:
+#   huggingface-cli download depth-anything/DA3METRIC-LARGE --local-dir /path/to/DA3METRIC-LARGE
+# Затем прописать путь в depth2lidar/depth_estimator.py → _HF_MODEL_ID
+
 # Скопировать / примонтировать датасет nuScenes v1.0-trainval
 # Ожидаемая структура:
 # /data/nuscenes/v1.0-trainval/
