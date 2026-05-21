@@ -287,6 +287,46 @@ class PointCloudFilter:
         return points
 
     @staticmethod
+    def voxel_downsample_mean(points: np.ndarray, voxel_size: float = 0.1) -> np.ndarray:
+        """
+        Voxel grid downsampling using the **mean** position of all points in each voxel.
+
+        Unlike voxel_downsample (which keeps the first/closest point), this method
+        averages coordinates within each occupied voxel.  The result is geometrically
+        smoother — systematic depth-estimation bias within a voxel is partially
+        cancelled out — at the cost of points no longer lying on the original rays.
+
+        Args:
+            points:     (N, 3+) point cloud.
+            voxel_size: Side length of each voxel in metres.
+
+        Returns:
+            downsampled: (K, 3+) one point per occupied voxel (mean coordinates).
+        """
+        if len(points) == 0:
+            return np.empty((0, points.shape[1]), dtype=np.float32)
+
+        coords = np.floor(points[:, :3] / voxel_size).astype(np.int32)
+
+        # Sort by voxel key (same as voxel_downsample for consistency)
+        order = np.lexsort((coords[:, 2], coords[:, 1], coords[:, 0]))
+        sorted_coords = coords[order]
+        sorted_points = points[order].astype(np.float64)
+
+        # Voxel boundaries
+        is_new = np.concatenate(
+            [[True], np.any(sorted_coords[1:] != sorted_coords[:-1], axis=1)]
+        )
+        split_idx = np.where(is_new)[0]
+
+        # Sum then divide — O(N) via reduceat
+        sums   = np.add.reduceat(sorted_points, split_idx, axis=0)
+        counts = np.diff(np.concatenate([split_idx, [len(sorted_points)]]))
+        means  = sums / counts[:, None]
+
+        return means.astype(np.float32)
+
+    @staticmethod
     def voxel_downsample(points: np.ndarray, voxel_size: float = 0.1) -> np.ndarray:
         """
         Uniform voxel grid downsampling. Reduces dense pseudo-LiDAR to

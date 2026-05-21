@@ -36,3 +36,6 @@ temp*.png
 
 /depth-anything-3
 /output
+
+# NumPy binary data
+*.npz

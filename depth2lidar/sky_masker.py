@@ -47,29 +47,40 @@ class SemanticMasker:
         mask_vegetation: bool = True,
         model_id: str = _DEFAULT_MODEL,
         device: str = "auto",
+        mask_classes: list[int] | None = None,
     ):
+        """
+        Args:
+            mask_sky:        Маскировать небо (ADE20K class 2). Игнорируется если mask_classes задан.
+            mask_vegetation: Маскировать растительность (ADE20K). Игнорируется если mask_classes задан.
+            model_id:        HuggingFace model ID.
+            device:          'cuda', 'cpu' или 'auto'.
+            mask_classes:    Явный список class ID для маскирования — переопределяет mask_sky/mask_vegetation.
+                             Используйте для не-ADE20K моделей (например Cityscapes: sky=10, vegetation=8).
+        """
         if device == "auto":
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = torch.device(device)
 
-        self._labels: list[int] = []
-        if mask_sky:
-            self._labels.append(_ADE20K_SKY)
-        if mask_vegetation:
-            self._labels.extend(_ADE20K_VEGETATION)
+        if mask_classes is not None:
+            self._labels = list(mask_classes)
+        else:
+            self._labels = []
+            if mask_sky:
+                self._labels.append(_ADE20K_SKY)
+            if mask_vegetation:
+                self._labels.extend(_ADE20K_VEGETATION)
 
         if not self._labels:
             raise ValueError("Нужно включить хотя бы один класс для маскирования.")
 
-        label_names = []
-        if mask_sky:
-            label_names.append("sky")
-        if mask_vegetation:
-            label_names.append("vegetation")
+        label_str = mask_classes if mask_classes is not None else (
+            [s for s, f in [("sky", mask_sky), ("vegetation", mask_vegetation)] if f]
+        )
         print(
-            f"Загрузка SemanticMasker (SegFormer ADE20K) из '{model_id}' "
-            f"на {self.device} [маски: {', '.join(label_names)}] ..."
+            f"Загрузка SemanticMasker из '{model_id}' "
+            f"на {self.device} [классы: {label_str}] ..."
         )
         self._load_model(model_id)
         print("  SemanticMasker загружен.")

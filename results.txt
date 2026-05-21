@@ -1,0 +1,43 @@
+================================================================================
+Pseudo-LiDAR Ablation Study — nuScenes mini val (81 samples)
+Model: DAL-base (dal-base.pth), zero-shot inference
+================================================================================
+
+Version       | NDS    | mAP    | Description
+--------------|--------|--------|------------------------------------------------
+Real LiDAR    | 0.6007 | 0.5917 | Upper bound (real sensor data)
+Empty LiDAR   | 0.5709 | 0.5493 | Camera-only baseline (no LiDAR input)
+v7            | 0.5043 | 0.4338 | Baseline pseudo-LiDAR (depth → back-project)
+v11 (32-beam) | 0.5417 | 0.4981 | v7 + Sobel edge filter + 32-beam sparsification
+v11 (64-beam) | 0.5319 | 0.4822 | v7 + Sobel edge filter + 64-beam sparsification
+v12           | 0.5539 | 0.5217 | v11 + RANSAC ground plane + jump point filter  [BEST]
+v13           | 0.5464 | 0.5059 | v12 with bugs 1+2+3+4 fixed (all fixes combined)
+v15           | 0.5561 | 0.5259 | v12 + Grid Penetration Filter (thr=1.0m)  [BEST]
+v15s          | 0.5486 | 0.5131 | v15 + per-camera scale (20 sample'ов, все камеры)
+v15s_full     | 0.5492 | 0.5135 | v15 + per-camera scale (404 sample'а, все 6 камер)
+v15s_4cam     | 0.5554 | 0.5263 | v15 + per-camera scale (404 sample'а, 4 камеры без BACK_LEFT/BACK_RIGHT)
+v16           | 0.5557 | 0.5259 | v15 + Bilateral Filter на depth map (edge-preserving smoothing)
+
+--- Ablation: single-bug fixes on top of v12 ---
+
+v12.1         | 0.5539 | 0.5217 | Fix bug 1 only: elevation wrap in jump filter (inf-pad)
+v12.3         | 0.5478 | 0.5084 | Fix bug 3 only: RANSAC Z-range → z_min=-2.2, z_max=-1.5
+v12.4         | 0.5530 | 0.5201 | Fix bug 4 only: RANSAC correction limited to r≤30m
+
+================================================================================
+Key findings:
+- v12 (with original bugs) remains the best pseudo-LiDAR result (NDS=0.5539)
+- Bug 1 fix (elevation wrap): no measurable impact on metrics
+- Bug 3 fix (Z-range tightening): hurts performance (NDS -0.0061, mAP -0.0133)
+  → Tighter Z-range finds fewer ground candidates; RANSAC correction degrades
+- Bug 4 fix (radius limit): slight degradation (NDS -0.0009, mAP -0.0016)
+  → Far-range "erroneous" corrections accidentally improved results
+- v15 Grid Penetration Filter: +0.0022 NDS, +0.0042 mAP vs v12 — лучший результат
+- v15s (20 samp, все камеры): NDS=0.5486 — хуже v15, мало данных для калибровки
+- v15s_full (404 samp, все камеры): NDS=0.5492 — чуть лучше, но всё равно хуже v15 (-0.0069)
+  → CAM_BACK_LEFT (std=1.66) и CAM_BACK_RIGHT (std=1.26) вносят шум
+- v15s_4cam (404 samp, 4 камеры): NDS=0.5554, mAP=0.5263 — почти на уровне v15 (-0.0007 NDS, +0.0004 mAP)
+  → исключение 2 ненадёжных камер из scale correction значительно помогает
+- Все варианты pseudo-LiDAR всё ещё ниже empty-LiDAR baseline (NDS=0.5709)
+  → Domain gap можно закрыть только через fine-tuning BEVDet на pseudo-LiDAR
+================================================================================

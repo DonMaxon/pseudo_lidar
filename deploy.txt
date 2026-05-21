@@ -1,0 +1,134 @@
+================================================================================
+РУКОВОДСТВО: ЗАПУСК ПСЕВДО-LIDAR НА H100
+================================================================================
+
+--------------------------------------------------------------------------------
+ШАГ 0. Подготовка на H100
+--------------------------------------------------------------------------------
+
+# Клонировать репозиторий
+git clone <твой репо> /workspace/pseudo_lidar_bev
+cd /workspace/pseudo_lidar_bev/depth2lidar
+
+# Установить зависимости
+pip install -r requirements.txt
+pip install nuscenes-devkit scipy scikit-learn opencv-python pyquaternion
+
+# Скопировать / примонтировать датасет nuScenes v1.0-trainval
+# Ожидаемая структура:
+# /data/nuscenes/v1.0-trainval/
+#   samples/
+#   sweeps/
+#   v1.0-trainval/
+
+--------------------------------------------------------------------------------
+ШАГ 1. Генерация псевдо-LiDAR
+--------------------------------------------------------------------------------
+
+cd /workspace/pseudo_lidar_bev/depth2lidar
+
+python scripts/v16/save_pseudo_lidar_nuscenes_v16_trainval.py \
+    --dataroot   /data/nuscenes/v1.0-trainval \
+    --version    v1.0-trainval \
+    --output_dir /data/pseudo_lidar_v16_trainval
+
+Что делает скрипт:
+  Для каждого сэмпла берёт 6 камер, предсказывает глубину через
+  DepthAnythingV3 Metric, накладывает фильтры (Sobel threshold=0.5,
+  bilateral, RANSAC, SOR), проецирует точки в ego-frame и сохраняет .bin файл.
+
+Выход:
+  /data/pseudo_lidar_v16_trainval/samples/LIDAR_TOP/*.bin
+  (один файл на сэмпл)
+
+Время:
+  ~3376 сэмплов × 5–8 сек/сэмпл ≈ 5–7 часов.
+  Рекомендуется запускать в tmux или screen.
+
+Если нужен только val (914 сэмплов) для быстрой проверки:
+  Добавить флаг: --max_samples 914
+
+--------------------------------------------------------------------------------
+ШАГ 2. Сборка PKL-файла для BEVDet
+--------------------------------------------------------------------------------
+
+python scripts/create_bevdet_pkl_trainval.py \
+    --dataroot         /data/nuscenes/v1.0-trainval \
+    --pseudo_lidar_dir /data/pseudo_lidar_v16_trainval \
+    --version          v1.0-trainval \
+    --out              /data/pseudo_lidar_v16_trainval/bevdet_infos.pkl
+
+Выход (два файла):
+  /data/pseudo_lidar_v16_trainval/bevdet_infos_train.pkl  — 2462 сэмпла
+  /data/pseudo_lidar_v16_trainval/bevdet_infos_val.pkl    —  914 сэмплов
+
+--------------------------------------------------------------------------------
+ШАГ 3. Настройка путей в конфигах BEVDet
+--------------------------------------------------------------------------------
+
+Файл: configs/dal/dal-base-pseudo-v16-trainval-finetune.py
+
+  Было:
+    train_ann = '/home/max/Phd/Phase1/dataset/pseudo_lidar_v16/bevdet_infos_train.pkl'
+
+  Стало:
+    train_ann = '/data/pseudo_lidar_v16_trainval/bevdet_infos_train.pkl'
+
+Файл: configs/dal/dal-base-pseudo-v16-trainval-test.py
+
+  Было:
+    val_ann = '/home/max/Phd/Phase1/dataset/pseudo_lidar_v16_trainval/bevdet_infos_val.pkl'
+
+  Стало:
+    val_ann = '/data/pseudo_lidar_v16_trainval/bevdet_infos_val.pkl'
+
+В обоих конфигах проверить data_root:
+    data_root='/data/nuscenes/v1.0-trainval/'
+
+--------------------------------------------------------------------------------
+ШАГ 4. Тест — baseline (без дообучения)
+--------------------------------------------------------------------------------
+
+cd /workspace/BEVDet
+
+python tools/test.py \
+    configs/dal/dal-base-pseudo-v16-trainval-test.py \
+    checkpoints/dal-base.pth \
+    --eval bbox \
+    --eval-options jsonfile_prefix=work_dirs/pseudo_v16_h100/results/
+
+Результат: NDS и mAP в терминале + results_nusc.json в папке results/.
+
+--------------------------------------------------------------------------------
+ШАГ 5. Дообучение
+--------------------------------------------------------------------------------
+
+python tools/train.py \
+    configs/dal/dal-base-pseudo-v16-trainval-finetune.py \
+    --work-dir work_dirs/dal-finetune-v16-h100 \
+    --deterministic
+
+После дообучения — тест с новым чекпоинтом:
+
+python tools/test.py \
+    configs/dal/dal-base-pseudo-v16-trainval-test.py \
+    work_dirs/dal-finetune-v16-h100/latest.pth \
+    --eval bbox \
+    --eval-options jsonfile_prefix=work_dirs/dal-finetune-v16-h100/results/
+
+--------------------------------------------------------------------------------
+НАСТРОЙКА КОНФИГА ПОД H100 (увеличить batch size)
+--------------------------------------------------------------------------------
+
+Текущий конфиг настроен под локальную 4GB GPU — очень консервативно.
+На H100 поменять в finetune конфиге:
+
+  # Увеличить batch size и workers:
+  data = dict(samples_per_gpu=4,   # было 1
+              workers_per_gpu=4)   # было 2
+
+  # Убрать ограничения памяти:
+  cudnn_benchmark = True           # было False
+  deterministic = False            # было True (замедляет обучение)
+
+================================================================================
